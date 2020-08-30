@@ -109,8 +109,58 @@ impl<'a> Iterator for RowColumnIter<'a> {
     }
 }
 
+/// Type of the field within the `Row`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum FieldType {
+    /// Null
+    Null,
+    /// Boolean value (`true`, `false`).
+    Bool,
+    /// Signed integer INT_8.
+    Byte,
+    /// Signed integer INT_16.
+    Short,
+    /// Signed integer INT_32.
+    Int,
+    /// Signed integer INT_64.
+    Long,
+    // Unsigned integer UINT_8.
+    UByte,
+    // Unsigned integer UINT_16.
+    UShort,
+    // Unsigned integer UINT_32.
+    UInt,
+    // Unsigned integer UINT_64.
+    ULong,
+    /// IEEE 32-bit floating point value.
+    Float,
+    /// IEEE 64-bit floating point value.
+    Double,
+    /// Decimal value.
+    Decimal,
+    /// UTF-8 encoded character string.
+    Str,
+    /// General binary value.
+    Bytes,
+    /// Date without a time of day, stores the number of days from the
+    /// Unix epoch, 1 January 1970.
+    Date,
+    /// Milliseconds from the Unix epoch, 1 January 1970.
+    TimestampMillis,
+    /// Microseconds from the Unix epoch, 1 January 1970.
+    TimestampMicros,
+    /// Struct, child elements are tuples of field-value pairs.
+    Group,
+    /// List of elements.
+    List,
+    /// List of key-value pairs.
+    Map,
+}
+
 /// Trait for type-safe convenient access to fields within a Row.
 pub trait RowAccessor {
+    fn get_field_type(&self, i: usize) -> FieldType;
+    fn get_field_name(&self, i: usize) -> &str;
     fn get_bool(&self, i: usize) -> Result<bool>;
     fn get_byte(&self, i: usize) -> Result<i8>;
     fn get_short(&self, i: usize) -> Result<i16>;
@@ -124,6 +174,7 @@ pub trait RowAccessor {
     fn get_double(&self, i: usize) -> Result<f64>;
     fn get_timestamp_millis(&self, i: usize) -> Result<u64>;
     fn get_timestamp_micros(&self, i: usize) -> Result<u64>;
+    fn get_date(&self, i: usize) -> Result<u32>;
     fn get_decimal(&self, i: usize) -> Result<&Decimal>;
     fn get_string(&self, i: usize) -> Result<&String>;
     fn get_bytes(&self, i: usize) -> Result<&ByteArray>;
@@ -179,6 +230,14 @@ impl RowFormatter for Row {
 }
 
 impl RowAccessor for Row {
+    fn get_field_type(&self, i: usize) -> FieldType {
+        self.fields[i].1.get_field_type()
+    }
+
+    fn get_field_name(&self, i: usize) -> &str {
+        &self.fields[i].0
+    }
+
     row_primitive_accessor!(get_bool, Bool, bool);
 
     row_primitive_accessor!(get_byte, Byte, i8);
@@ -204,6 +263,8 @@ impl RowAccessor for Row {
     row_primitive_accessor!(get_timestamp_millis, TimestampMillis, u64);
 
     row_primitive_accessor!(get_timestamp_micros, TimestampMicros, u64);
+
+    row_primitive_accessor!(get_date, Date, u32);
 
     row_complex_accessor!(get_decimal, Decimal, Decimal);
 
@@ -266,6 +327,7 @@ pub fn make_list(elements: Vec<Field>) -> List {
 /// Trait for type-safe access of an index for a `List`.
 /// Note that the get_XXX methods do not do bound checking.
 pub trait ListAccessor {
+    fn get_element_type(&self, i: usize) -> FieldType;
     fn get_bool(&self, i: usize) -> Result<bool>;
     fn get_byte(&self, i: usize) -> Result<i8>;
     fn get_short(&self, i: usize) -> Result<i16>;
@@ -279,6 +341,7 @@ pub trait ListAccessor {
     fn get_double(&self, i: usize) -> Result<f64>;
     fn get_timestamp_millis(&self, i: usize) -> Result<u64>;
     fn get_timestamp_micros(&self, i: usize) -> Result<u64>;
+    fn get_date(&self, i: usize) -> Result<u32>;
     fn get_decimal(&self, i: usize) -> Result<&Decimal>;
     fn get_string(&self, i: usize) -> Result<&String>;
     fn get_bytes(&self, i: usize) -> Result<&ByteArray>;
@@ -322,6 +385,10 @@ macro_rules! list_complex_accessor {
 }
 
 impl ListAccessor for List {
+    fn get_element_type(&self, i: usize) -> FieldType {
+        self.elements[i].get_field_type()
+    }
+
     list_primitive_accessor!(get_bool, Bool, bool);
 
     list_primitive_accessor!(get_byte, Byte, i8);
@@ -347,6 +414,8 @@ impl ListAccessor for List {
     list_primitive_accessor!(get_timestamp_millis, TimestampMillis, u64);
 
     list_primitive_accessor!(get_timestamp_micros, TimestampMicros, u64);
+
+    list_primitive_accessor!(get_date, Date, u32);
 
     list_complex_accessor!(get_decimal, Decimal, Decimal);
 
@@ -387,6 +456,8 @@ pub fn make_map(entries: Vec<(Field, Field)>) -> Map {
 
 /// Trait for type-safe access of an index for a `Map`
 pub trait MapAccessor {
+    fn key_type(&self, i: usize) -> FieldType;
+    fn value_type(&self, i: usize) -> FieldType;
     fn get_keys<'a>(&'a self) -> Box<ListAccessor + 'a>;
     fn get_values<'a>(&'a self) -> Box<ListAccessor + 'a>;
 }
@@ -413,6 +484,10 @@ macro_rules! map_list_primitive_accessor {
 }
 
 impl<'a> ListAccessor for MapList<'a> {
+    fn get_element_type(&self, i: usize) -> FieldType {
+        self.elements[i].get_field_type()
+    }
+
     map_list_primitive_accessor!(get_bool, Bool, bool);
 
     map_list_primitive_accessor!(get_byte, Byte, i8);
@@ -439,6 +514,8 @@ impl<'a> ListAccessor for MapList<'a> {
 
     map_list_primitive_accessor!(get_timestamp_micros, TimestampMicros, u64);
 
+    map_list_primitive_accessor!(get_date, Date, u32);
+
     list_complex_accessor!(get_decimal, Decimal, Decimal);
 
     list_complex_accessor!(get_string, Str, String);
@@ -453,6 +530,14 @@ impl<'a> ListAccessor for MapList<'a> {
 }
 
 impl MapAccessor for Map {
+    fn key_type(&self, i: usize) -> FieldType {
+        self.entries[i].0.get_field_type()
+    }
+
+    fn value_type(&self, i: usize) -> FieldType {
+        self.entries[i].1.get_field_type()
+    }
+
     fn get_keys<'a>(&'a self) -> Box<ListAccessor + 'a> {
         let map_list = MapList {
             elements: self.entries.iter().map(|v| &v.0).collect(),
@@ -548,6 +633,32 @@ impl Field {
         }
     }
 
+    pub fn get_field_type(&self) -> FieldType {
+        match self {
+            Field::Null => FieldType::Null,
+            Field::Bool(_) => FieldType::Bool,
+            Field::Byte(_) => FieldType::Byte,
+            Field::Short(_) => FieldType::Short,
+            Field::Int(_) => FieldType::Int,
+            Field::Long(_) => FieldType::Long,
+            Field::UByte(_) => FieldType::UByte,
+            Field::UShort(_) => FieldType::UShort,
+            Field::UInt(_) => FieldType::UInt,
+            Field::ULong(_) => FieldType::ULong,
+            Field::Float(_) => FieldType::Float,
+            Field::Double(_) => FieldType::Double,
+            Field::Decimal(_) => FieldType::Decimal,
+            Field::Str(_) => FieldType::Str,
+            Field::Bytes(_) => FieldType::Bytes,
+            Field::TimestampMillis(_) => FieldType::TimestampMillis,
+            Field::TimestampMicros(_) => FieldType::TimestampMicros,
+            Field::Date(_) => FieldType::Date,
+            Field::Group(_) => FieldType::Group,
+            Field::ListInternal(_) => FieldType::List,
+            Field::MapInternal(_) => FieldType::Map,
+        }
+    }
+
     /// Determines if this Row represents a primitive value.
     pub fn is_primitive(&self) -> bool {
         !matches!(
@@ -603,7 +714,13 @@ impl Field {
     /// `Timestamp` value.
     #[inline]
     pub fn convert_int96(_descr: &ColumnDescPtr, value: Int96) -> Self {
-        Field::TimestampMillis(value.to_i64() as u64)
+        let millis = value.to_i64();
+        if millis < 0 {
+            // XXX: Temporary workaround for negative timestamps -- return 1970-01-01T00:00:00Z
+            Field::TimestampMillis(0)
+        } else {
+            Field::TimestampMillis(millis as u64)
+        }
     }
 
     /// Converts Parquet FLOAT type with logical type into `f32` value.
@@ -960,7 +1077,22 @@ mod tests {
         let value = Int96::from(vec![4165425152, 13, 2454923]);
         let row = Field::convert_int96(&descr, value);
         assert_eq!(row, Field::TimestampMillis(1238544060000));
+        
+        // Negative int96
+        let value = Int96::from(vec![0, 0, 0]);
+        let row = Field::convert_int96(&descr, value);
+        assert_eq!(row, Field::TimestampMillis(0));
     }
+
+    //#[test]
+    //#[should_panic(expected = "Expected non-negative milliseconds when converting Int96")]
+    //fn test_row_convert_int96_invalid() {
+        // INT96 value does not depend on logical type
+    //    let descr = make_column_descr![PhysicalType::INT96, LogicalType::NONE];
+
+    //    let value = Int96::from(vec![0, 0, 0]);
+    //    Field::convert_int96(&descr, value);
+    //}
 
     #[test]
     fn test_row_convert_float() {

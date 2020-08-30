@@ -414,9 +414,15 @@ impl Reader {
     fn read_field(&mut self) -> Field {
         match *self {
             Reader::PrimitiveReader(_, ref mut column) => {
-                let value = column.current_value();
-                column.read_next().unwrap();
-                value
+                // It's not obvious why some bytearray (string) fields are read through this PrimitiveReader,
+                // the following condition adds support for nullable fields:
+                if column.is_null() {
+                    Field::Null
+                } else {
+                    let value = column.current_value();
+                    column.read_next().unwrap();
+                    value
+                }
             }
             Reader::OptionReader(def_level, ref mut reader) => {
                 if reader.current_def_level() > def_level {
